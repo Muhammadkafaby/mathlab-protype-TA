@@ -1,0 +1,87 @@
+; =====================================================================
+; Boost Converter 3V -> 24V : Proteus VSM Schematic Notes
+; =====================================================================
+; File ini BUKAN file biner Proteus (.DSN). Proteus tidak punya format
+; netlist teks resmi yang bisa diimpor langsung. File ini berisi
+; daftar komponen + koneksi (net list manual) yang siap digambar di
+; Proteus ISIS, plus nilai dan part library yang biasa tersedia.
+;
+; Cara pakai di Proteus:
+;   1) Buka Proteus ISIS, New Project.
+;   2) Pick from Libraries (P), tambahkan komponen di tabel di bawah.
+;   3) Sambungkan sesuai bagian "NET / WIRE LIST".
+;   4) Atur Simulasi: Graph Mode -> Analogue Analysis,
+;      atur stop time 4ms, max step 50ns.
+;   5) Run.
+; =====================================================================
+
+[KOMPONEN]
+; Reference | Library / Part         | Nilai / Catatan
+;-----------|------------------------|------------------------------------
+V1         | BATTERY                | 3 V (sumber input)
+L1         | INDUCTOR               | 10 uH, ESR 0.03 ohm
+M1         | IRLML2502 (atau MOSFET-N logic-level)
+                                    | Vds 20V, Rds(on) ~45 mOhm @ Vgs=2.5V
+D1         | SCHOTTKY (1N5819 / SS34)
+                                    | 40 V / 1 A
+Cin1       | CAP-ELEC               | 22 uF / 10 V
+Cin2       | CAP                    | 100 nF
+Cout1      | CAP-ELEC               | 22 uF / 50 V (X7R idealnya)
+Cout2      | CAP-ELEC               | 47 uF / 35 V (polymer)
+Cout3      | CAP                    | 100 nF
+Rload      | RES                    | 120 ohm / 5 W
+Rsnub      | RES                    | 2.2 ohm
+Csnub      | CAP                    | 470 pF / 50V (C0G)
+Rfb1       | RES                    | 287 k
+Rfb2       | RES                    | 10 k
+Dtvs       | ZENER                  | BZX84C24 atau SMAJ26A (klamp ~26 V)
+U1         | 555 (atau IC PWM TL494/UC3843 untuk closed-loop)
+                                    | Pakai 555 astable utk demo open-loop
+
+; PWM Generator (untuk demo open-loop di Proteus):
+;   - Mode astable 555 dengan duty 87.5% pada 500 kHz
+;   - Atau gunakan blok PULSE generator (Generator Mode -> Pulse):
+;       Initial=0V, Pulsed=5V, Delay=0, Rise=20n, Fall=20n,
+;       Pulse Width=1.75us, Period=2us
+
+[NET / WIRE LIST]
+; Net name  : Pin-pin yang dihubungkan
+; ---------------------------------------------------------------
+VIN_RAW   : V1(+), Cin1(+), Cin2(1)
+GND       : V1(-), Cin1(-), Cin2(2), M1(S), Cout1(-), Cout2(-),
+            Cout3(2), Rload(2), Csnub(2), Rfb2(2), Dtvs(K=GND? lihat),
+            U1(GND)
+N_LIN     : Cin1(+) -> L1(1)               ; titik input induktor
+SW        : L1(2) -> M1(D) -> D1(A) -> Rsnub(1)
+NSN       : Rsnub(2) -> Csnub(1)
+VOUT      : D1(K) -> Cout1(+) -> Cout2(+) -> Cout3(1) -> Rload(1)
+            -> Rfb1(1) -> Dtvs(anode utk SMAJ26A bidir)
+FB        : Rfb1(2) -> Rfb2(1)             ; ke pin FB controller
+GATE      : U1(OUT) -> M1(G)               ; output PWM ke gate
+
+[PENGATURAN SIMULASI]
+- Analysis: Transient (Graph Mode -> ANALOGUE)
+- Stop Time: 4 m
+- Max Step:  50 n
+- Probe:
+    * Tegangan: VOUT, SW, GATE
+    * Arus    : I(L1), I(D1), I(M1)
+- Plot ripple di window 3 ms - 4 ms (steady state).
+
+[VERIFIKASI HASIL YANG DIHARAPKAN]
+- VOUT rata-rata    ~ 23.5 .. 24.0 V (open-loop: tergantung losses)
+- IL  rata-rata     ~ 1.7 .. 1.9 A
+- IL  ripple pp     ~ 0.5 .. 0.6 A
+- Vds(M1) overshoot < 30 V (snubber bekerja)
+- Efisiensi         ~ 78 .. 85 %
+
+[VERSI CLOSED-LOOP DI PROTEUS]
+Untuk closed-loop di Proteus, paling praktis pakai IC PWM TL494 atau
+UC3843 (tersedia di library) dengan rangkaian feedback Rfb1/Rfb2 -> FB,
+plus jaringan kompensasi Type-II di pin COMP. Skema persis sesuai
+datasheet IC; nilai komponen kompensasi diambil dari hasil
+boost_averaged_model.m (Rc, Cc1, Cc2).
+
+; =====================================================================
+; END
+; =====================================================================

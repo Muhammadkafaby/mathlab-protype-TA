@@ -1,0 +1,100 @@
+* =====================================================================
+* Boost Converter 3V -> 24V : SPICE Netlist (LTspice / generic SPICE)
+* =====================================================================
+* Topologi: Non-synchronous boost (NMOS low-side + Schottky)
+* Vin   = 3 V
+* Vout  = 24 V (target)
+* Iout  = 200 mA (Rload = 120 ohm)
+* fsw   = 500 kHz, D ~ 0.875
+*
+* Cara pakai:
+*   - LTspice: File > Open > pilih file ini, lalu Run.
+*   - ngspice: ngspice boost_3v_24v.cir
+*
+* Catatan:
+*   - Kontroler dimodelkan sebagai PWM open-loop dengan duty 0.875
+*     (untuk verifikasi steady-state). Untuk closed-loop ganti V_PWM
+*     dengan model error amplifier + komparator (lihat blok COMMENT).
+*   - Model MOSFET & diode generik supaya netlist portabel; ganti
+*     dengan model pabrikan untuk hasil presisi (mis. PMEG4030ER, SiR826).
+* =====================================================================
+
+.title Boost 3V to 24V
+
+* --- Sumber daya ---
+Vin   VIN  0   DC 3
+Rin   VIN  N1  0.005          ; resistansi seri kabel/konektor
+
+* --- Induktor daya + DCR ---
+L1    N1   SW  10u  Rser=0.030
+* (Rser di LTspice; di SPICE generik gunakan resistor terpisah)
+* RL_DCR N1 NL 0.030
+* L1     NL SW 10u
+
+* --- MOSFET low-side (switch) ---
+* Model NMOS sederhana (level 1). Ganti .MODEL dengan model pabrikan.
+M1    SW  GATE 0  0  NMOS_SW
+.model NMOS_SW NMOS (Level=1 Vto=1.2 Kp=200 Rd=0.01 Rs=0.005)
+
+* --- Schottky diode ---
+D1    SW  VOUT  DSCH
+.model DSCH D (Is=5e-6 Rs=0.05 N=1.05 BV=40 Cjo=150p)
+
+* --- Snubber RC across MOSFET drain-source ---
+Rsnub SW  NSN   2.2
+Csnub NSN 0     470p
+
+* --- Kapasitor output (paralel keramik + polymer) ---
+Cout1 VOUT 0   22u  Rser=0.005
+Cout2 VOUT 0   22u  Rser=0.005
+Cout3 VOUT 0   47u  Rser=0.020   ; polymer
+
+* --- Beban ---
+Rload VOUT 0   120
+
+* --- Kapasitor input ---
+Cin1  VIN  0   22u  Rser=0.005
+Cin2  VIN  0   22u  Rser=0.005
+Cin3  VIN  0   100n
+
+* --- TVS proteksi output (zener model klamp ~26 V) ---
+Dtvs  VOUT 0   DTVS
+.model DTVS D (Is=1e-12 Rs=0.5 BV=26 Ibv=1m)
+
+* =====================================================================
+* PWM driver open-loop (duty fix 0.875 @ 500 kHz)
+* =====================================================================
+* Pulse: V_lo=0, V_hi=5, delay=0, rise=20n, fall=20n,
+*        on-time = 0.875*Tsw = 1.75us, period = 2us
+Vpwm  GATE 0   PULSE(0 5 0 20n 20n 1.75u 2u)
+
+* =====================================================================
+* COMMENT: Untuk closed-loop, ganti Vpwm dengan rangkaian berikut:
+* -----------------------------------------------------------------
+* * Pembagi feedback: Vout -> FB
+* Rfb1  VOUT FB  287k
+* Rfb2  FB   0   10k
+* * Referensi 0.8 V
+* Vref  REF  0   DC 0.8
+* * Error amplifier (op-amp ideal) + Type-II network
+* Eea   COMP 0   VALUE = { LIMIT( 1e3*(V(REF)-V(FB)), 0, 3 ) }
+* * Sawtooth 0..3 V @ 500 kHz
+* Vsaw  SAW  0   PULSE(0 3 0 1.99u 10n 10n 2u)
+* * Komparator -> gate drive
+* Bcmp  GATE 0   V = { IF(V(COMP) > V(SAW), 5, 0) }
+* =====================================================================
+
+* --- Direktif analisa ---
+.tran 10n 4m 0 50n   ; transient 4 ms, max step 50 ns
+.probe
+.options reltol=1e-3 abstol=1e-9 vntol=1e-6 method=gear
+
+* --- Pengukuran otomatis ---
+.meas tran Vout_avg AVG V(VOUT) FROM=3m TO=4m
+.meas tran Vout_pp  PP  V(VOUT) FROM=3m TO=4m
+.meas tran IL_avg   AVG I(L1)   FROM=3m TO=4m
+.meas tran IL_pp    PP  I(L1)   FROM=3m TO=4m
+.meas tran Pout PARAM='Vout_avg*Vout_avg/120'
+.meas tran Pin  AVG  '(V(VIN)*I(Vin))' FROM=3m TO=4m
+
+.end
